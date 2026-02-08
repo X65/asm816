@@ -18,6 +18,8 @@ pub enum TokenKind {
     #[regex(r#"\"([^\"\\]|\\.)*\""#)]
     String,
 
+    #[token("::")]
+    DColon,
     #[token(":")]
     Colon,
     #[token(",")]

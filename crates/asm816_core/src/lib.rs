@@ -7,6 +7,7 @@ pub mod expr;
 pub mod fmt;
 pub mod ir;
 pub mod lex;
+pub mod module_system;
 pub mod parse;
 pub mod source;
 
@@ -14,6 +15,7 @@ use asm::{pass1, pass2};
 use diag::{Diag, Severity, has_errors, render_diags};
 use fmt::format_program;
 use lex::lex_file;
+use module_system::build_program_from_entry;
 use parse::parse_tokens;
 use source::SourceManager;
 
@@ -142,26 +144,10 @@ fn compile_path(
     run_pass2: bool,
 ) -> CompileArtifacts {
     let mut source_manager = SourceManager::new(include_dirs);
-    let entry_file = match source_manager.load_path(input) {
-        Ok(file) => file,
-        Err(err) => {
-            let file = source_manager.add_virtual_file(input.to_path_buf(), String::new());
-            return CompileArtifacts {
-                source_manager,
-                entry_file: file,
-                bytes: Vec::new(),
-                diags: vec![Diag::error(
-                    file,
-                    0..0,
-                    format!("failed to read input file: {err}"),
-                )],
-            };
-        }
-    };
-
-    let (tokens, mut diags) = lex_file(&source_manager, entry_file);
-    let (program, parse_diags) = parse_tokens(&tokens);
-    diags.extend(parse_diags);
+    let module_build = build_program_from_entry(&mut source_manager, input);
+    let entry_file = module_build.entry_file;
+    let program = module_build.program;
+    let mut diags = module_build.diags;
 
     let pass1 = pass1(&program, cpu_mode);
     diags.extend(pass1.diags.clone());

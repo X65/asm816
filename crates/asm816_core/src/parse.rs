@@ -21,6 +21,7 @@ enum ParseToken {
     String(String),
 
     Colon,
+    DColon,
     Comma,
     LParen,
     RParen,
@@ -274,6 +275,7 @@ fn convert_line_tokens(raw_tokens: &[Token], diags: &mut Vec<Diag>) -> Vec<LineT
                 }
             },
             TokenKind::Colon => ParseToken::Colon,
+            TokenKind::DColon => ParseToken::DColon,
             TokenKind::Comma => ParseToken::Comma,
             TokenKind::LParen => ParseToken::LParen,
             TokenKind::RParen => ParseToken::RParen,
@@ -423,8 +425,26 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [ParseToken], Expr, PExtra<'sr
         });
 
         let symbol = select_ref! {
-            ParseToken::Ident(name) => Expr::Symbol(name.clone()),
-        };
+            ParseToken::Ident(name) => name.clone(),
+        }
+        .then(
+            just(ParseToken::DColon)
+                .ignore_then(select_ref! { ParseToken::Ident(name) => name.clone() })
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
+        .map(|(head, tail)| {
+            if tail.is_empty() {
+                Expr::Symbol(head)
+            } else {
+                let mut qualified = head;
+                for segment in tail {
+                    qualified.push_str("::");
+                    qualified.push_str(&segment);
+                }
+                Expr::Symbol(qualified)
+            }
+        });
 
         let current_pc = just(ParseToken::Star).to(Expr::CurrentPc);
 

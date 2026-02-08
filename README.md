@@ -41,6 +41,25 @@ Add include directories:
 cargo run --release -p asm816_cli -- assemble path/to/main.s -o out.bin -I include -I vendor
 ```
 
+Use module imports instead of `.include`:
+
+```asm
+; main.asm
+import libs::constants
+.org $8000
+LDA #libs::constants::ONE
+```
+
+```asm
+; libs/constants.asm
+pub ONE = 1
+```
+
+Notes:
+- module files map from roots as `foo/bar.asm` -> `foo::bar`
+- `pub` controls cross-module visibility
+- `.include` is deprecated and now reported as an error
+
 Set default 65816 register widths (used to size immediate operands):
 
 ```bash

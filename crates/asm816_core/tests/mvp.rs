@@ -63,19 +63,15 @@ fn emits_directive_bytes() {
 }
 
 #[test]
-fn warns_and_skips_include() {
+fn rejects_include_in_favor_of_imports() {
     let src = r#"
     .include "foo.s"
     NOP
 "#;
 
     let (bytes, diags) = compile_source_text(src, CpuMode::default());
-    assert_eq!(bytes, vec![0xEA]);
-    assert!(
-        diags
-            .iter()
-            .any(|diag| matches!(diag.severity, asm816_core::diag::Severity::Warning))
-    );
+    assert_eq!(bytes, Vec::<u8>::new());
+    assert!(has_errors(&diags), "diagnostics: {diags:#?}");
 }
 
 #[test]

@@ -252,7 +252,16 @@ pub fn pass1(program: &Program, initial_mode: CpuMode) -> Pass1Result {
                     ".a16" => mode.a = Width::W16,
                     ".i8" => mode.xy = Width::W8,
                     ".i16" => mode.xy = Width::W16,
-                    ".include" => {}
+                    ".include" => {
+                        diags.push(
+                            Diag::error(
+                                directive.name.file,
+                                directive.span.clone(),
+                                "`.include` is no longer supported; use module `import` instead",
+                            )
+                            .with_help("replace `.include \"x.s\"` with `import module::path`"),
+                        );
+                    }
                     _ => {
                         diags.push(Diag::error(
                             directive.name.file,
@@ -459,13 +468,7 @@ fn encode_directive(
 ) {
     match directive.name.value.as_str() {
         ".org" | ".a8" | ".a16" | ".i8" | ".i16" => {}
-        ".include" => {
-            diags.push(Diag::warning(
-                directive.name.file,
-                directive.span.clone(),
-                "`.include` is not implemented in MVP; directive ignored",
-            ));
-        }
+        ".include" => {}
         ".byte" => {
             for arg in &directive.args {
                 match &arg.value {
