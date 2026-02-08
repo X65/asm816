@@ -7,7 +7,6 @@ use crate::{
 
 #[derive(Logos, Debug, Clone, PartialEq, Eq)]
 #[logos(skip r"[ \t\f]+")]
-#[logos(skip(r";[^\n]*", allow_greedy = true))]
 pub enum TokenKind {
     #[regex(r"%%[A-Za-z_][A-Za-z0-9_]*")]
     MacroLocalLabel,
@@ -67,6 +66,9 @@ pub enum TokenKind {
     Eq,
     #[token(".")]
     Dot,
+
+    #[regex(r";[^\n]*", allow_greedy = true)]
+    Comment,
 
     #[regex(r"\n")]
     Newline,
@@ -128,6 +130,28 @@ mod tests {
                 TokenKind::Ident,
                 TokenKind::Hash,
                 TokenKind::Number,
+                TokenKind::Newline,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexes_comment_tokens() {
+        let mut manager = SourceManager::new(Vec::new());
+        let file = manager.add_virtual_file("test.s", "LDA #1 ; trailing\n; standalone\n");
+        let (tokens, diags) = lex_file(&manager, file);
+
+        assert!(diags.is_empty());
+        let kinds: Vec<TokenKind> = tokens.into_iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Ident,
+                TokenKind::Hash,
+                TokenKind::Number,
+                TokenKind::Comment,
+                TokenKind::Newline,
+                TokenKind::Comment,
                 TokenKind::Newline,
             ]
         );

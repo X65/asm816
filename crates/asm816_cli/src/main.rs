@@ -102,9 +102,31 @@ fn run_check(args: CheckArgs) -> i32 {
 }
 
 fn run_fmt(args: FmtArgs) -> i32 {
+    let current = match std::fs::read_to_string(&args.input) {
+        Ok(text) => normalize_newlines(&text),
+        Err(err) => {
+            eprintln!(
+                "asm816: failed to read {}: {err}",
+                args.input.as_path().display()
+            );
+            return 1;
+        }
+    };
+
     match format_path(&args.input, &FmtOptions::default()) {
         Ok(formatted) => {
-            print!("{formatted}");
+            if formatted == current {
+                return 0;
+            }
+
+            if let Err(err) = std::fs::write(&args.input, formatted) {
+                eprintln!(
+                    "asm816: failed to write {}: {err}",
+                    args.input.as_path().display()
+                );
+                return 1;
+            }
+
             0
         }
         Err(_) => 1,
@@ -116,6 +138,10 @@ fn mode_from_flags(a16: bool, i16: bool) -> CpuMode {
         a: if a16 { Width::W16 } else { Width::W8 },
         xy: if i16 { Width::W16 } else { Width::W8 },
     }
+}
+
+fn normalize_newlines(input: &str) -> String {
+    input.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 #[cfg(test)]

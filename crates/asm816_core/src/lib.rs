@@ -13,7 +13,7 @@ pub mod source;
 
 use asm::{pass1, pass2};
 use diag::{Diag, Severity, has_errors, render_diags};
-use fmt::format_program;
+use fmt::format_ir;
 use lex::lex_file;
 use module_system::build_program_from_entry;
 use parse::parse_tokens;
@@ -108,7 +108,7 @@ pub fn format_path(input: &Path, _opts: &FmtOptions) -> Result<String, Vec<Diag>
         return Err(diags);
     }
 
-    Ok(format_program(&program))
+    Ok(format_ir(&program))
 }
 
 pub fn compile_source_text(text: &str, cpu_mode: CpuMode) -> (Vec<u8>, Vec<Diag>) {

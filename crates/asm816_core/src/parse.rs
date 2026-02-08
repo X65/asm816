@@ -121,33 +121,80 @@ pub fn parse_tokens(tokens: &[Token]) -> (Program, Vec<Diag>) {
     let mut line_start = 0usize;
     for (idx, token) in tokens.iter().enumerate() {
         if token.kind == TokenKind::Newline {
-            parse_line(&tokens[line_start..idx], &mut program, &mut diags);
+            parse_line(
+                &tokens[line_start..idx],
+                Some((token.file, token.span.clone())),
+                &mut program,
+                &mut diags,
+            );
             line_start = idx + 1;
         }
     }
 
     if line_start < tokens.len() {
-        parse_line(&tokens[line_start..], &mut program, &mut diags);
+        parse_line(&tokens[line_start..], None, &mut program, &mut diags);
     }
 
     (program, diags)
 }
 
-fn parse_line(raw_tokens: &[Token], program: &mut Program, diags: &mut Vec<Diag>) {
+fn parse_line(
+    raw_tokens: &[Token],
+    line_terminator: Option<(FileId, Span)>,
+    program: &mut Program,
+    diags: &mut Vec<Diag>,
+) {
     if raw_tokens.is_empty() {
+        if let Some((file, span)) = line_terminator {
+            program.items.push(Item::EmptyLine(Spanned {
+                file,
+                span,
+                value: (),
+            }));
+        }
         return;
     }
 
-    let file = raw_tokens[0].file;
-    let line_tokens = convert_line_tokens(raw_tokens, diags);
+    let mut code_end = raw_tokens.len();
+    let mut trailing_comment = None;
+    if let Some((idx, token)) = raw_tokens
+        .iter()
+        .enumerate()
+        .find(|(_, token)| token.kind == TokenKind::Comment)
+    {
+        code_end = idx;
+        trailing_comment = Some((comment_text(&token.lexeme), token.file, token.span.clone()));
+    }
+
+    let code_tokens = &raw_tokens[..code_end];
+    if code_tokens.is_empty() {
+        if let Some((comment, file, span)) = trailing_comment {
+            program.items.push(Item::CommentLine(Spanned {
+                file,
+                span,
+                value: comment,
+            }));
+        } else if let Some((file, span)) = line_terminator {
+            program.items.push(Item::EmptyLine(Spanned {
+                file,
+                span,
+                value: (),
+            }));
+        }
+        return;
+    }
+
+    let file = code_tokens[0].file;
+    let line_tokens = convert_line_tokens(code_tokens, diags);
     if line_tokens.is_empty() {
         return;
     }
 
     let parse_input: Vec<ParseToken> = line_tokens.iter().map(|token| token.kind.clone()).collect();
+    let trailing_comment = trailing_comment.map(|(text, _, _)| text);
 
     match line_parser().parse(parse_input.as_slice()).into_result() {
-        Ok(parsed) => push_parsed_line(parsed, file, &line_tokens, program),
+        Ok(parsed) => push_parsed_line(parsed, file, &line_tokens, trailing_comment, program),
         Err(errors) => push_parse_errors(errors, file, &line_tokens, diags),
     }
 }
@@ -156,14 +203,25 @@ fn push_parsed_line(
     parsed: ParsedLine,
     file: FileId,
     line_tokens: &[LineToken],
+    trailing_comment: Option<String>,
     program: &mut Program,
 ) {
-    if let Some(label) = parsed.label {
+    let ParsedLine { label, tail } = parsed;
+
+    if let Some(label) = label {
         let name = to_spanned(label, file, line_tokens);
-        program.items.push(Item::Label(LabelDef { name }));
+        let label_comment = if tail.is_none() {
+            trailing_comment.clone()
+        } else {
+            None
+        };
+        program.items.push(Item::Label(LabelDef {
+            name,
+            trailing_comment: label_comment,
+        }));
     }
 
-    let Some(tail) = parsed.tail else {
+    let Some(tail) = tail else {
         return;
     };
 
@@ -171,7 +229,11 @@ fn push_parsed_line(
         LineTail::Assign { name, expr } => {
             let name = to_spanned(name, file, line_tokens);
             let expr = to_spanned(expr, file, line_tokens);
-            program.items.push(Item::Assign(Assign { name, expr }));
+            program.items.push(Item::Assign(Assign {
+                name,
+                expr,
+                trailing_comment,
+            }));
         }
         LineTail::Directive { name, args } => {
             let name = to_spanned(name, file, line_tokens);
@@ -201,6 +263,7 @@ fn push_parsed_line(
                 name,
                 args: converted_args,
                 span,
+                trailing_comment,
             }));
         }
         LineTail::Instruction { mnemonic, operand } => {
@@ -239,6 +302,7 @@ fn push_parsed_line(
                 mnemonic,
                 operand,
                 span,
+                trailing_comment,
             }));
         }
     }
@@ -300,6 +364,7 @@ fn convert_line_tokens(raw_tokens: &[Token], diags: &mut Vec<Diag>) -> Vec<LineT
             TokenKind::Gt => ParseToken::Gt,
             TokenKind::Eq => ParseToken::Eq,
             TokenKind::Dot => ParseToken::Dot,
+            TokenKind::Comment => continue,
             TokenKind::Newline => continue,
         };
 
@@ -580,6 +645,10 @@ fn parse_number_literal(raw: &str) -> Result<i64, String> {
         .map_err(|_| format!("invalid decimal literal `{raw}`"))
 }
 
+fn comment_text(lexeme: &str) -> String {
+    lexeme.strip_prefix(';').unwrap_or(lexeme).to_string()
+}
+
 fn to_spanned<T>(node: Node<T>, file: FileId, line_tokens: &[LineToken]) -> Spanned<T> {
     Spanned {
         file,
@@ -715,5 +784,59 @@ mod tests {
             Operand::Expr(Expr::Symbol(symbol)) => assert_eq!(symbol, "A"),
             other => panic!("unexpected operand shape: {other:?}"),
         }
+    }
+
+    #[test]
+    fn preserves_comment_lines_and_trailing_comments() {
+        let mut manager = SourceManager::new(Vec::new());
+        let file = manager.add_virtual_file(
+            "test.s",
+            "; standalone\nLDA #1 ; trailing\nlabel: ; label comment\nstart: LDA #2 ; after tail\n",
+        );
+        let (tokens, lex_diags) = lex_file(&manager, file);
+        assert!(lex_diags.is_empty());
+
+        let (program, parse_diags) = parse_tokens(&tokens);
+        assert!(parse_diags.is_empty());
+        assert_eq!(program.items.len(), 5);
+
+        let Item::CommentLine(comment) = &program.items[0] else {
+            panic!("expected standalone comment");
+        };
+        assert_eq!(comment.value, " standalone");
+
+        let Item::Instruction(instruction) = &program.items[1] else {
+            panic!("expected instruction");
+        };
+        assert_eq!(instruction.trailing_comment.as_deref(), Some(" trailing"));
+
+        let Item::Label(label) = &program.items[2] else {
+            panic!("expected label");
+        };
+        assert_eq!(label.trailing_comment.as_deref(), Some(" label comment"));
+
+        let Item::Label(label) = &program.items[3] else {
+            panic!("expected label");
+        };
+        assert!(label.trailing_comment.is_none());
+        let Item::Instruction(instruction) = &program.items[4] else {
+            panic!("expected instruction");
+        };
+        assert_eq!(instruction.trailing_comment.as_deref(), Some(" after tail"));
+    }
+
+    #[test]
+    fn preserves_empty_lines() {
+        let mut manager = SourceManager::new(Vec::new());
+        let file = manager.add_virtual_file("test.s", "LDA #1\n\n; c\n\nSTA $20\n");
+        let (tokens, lex_diags) = lex_file(&manager, file);
+        assert!(lex_diags.is_empty());
+
+        let (program, parse_diags) = parse_tokens(&tokens);
+        assert!(parse_diags.is_empty());
+        assert_eq!(program.items.len(), 5);
+        assert!(matches!(program.items[1], Item::EmptyLine(_)));
+        assert!(matches!(program.items[2], Item::CommentLine(_)));
+        assert!(matches!(program.items[3], Item::EmptyLine(_)));
     }
 }

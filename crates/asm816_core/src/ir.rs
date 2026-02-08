@@ -14,18 +14,21 @@ pub enum Item {
     Assign(Assign),
     Directive(Directive),
     Instruction(Instruction),
+    CommentLine(Spanned<String>),
     EmptyLine(Spanned<()>),
 }
 
 #[derive(Clone, Debug)]
 pub struct LabelDef {
     pub name: Spanned<String>,
+    pub trailing_comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Assign {
     pub name: Spanned<String>,
     pub expr: Spanned<Expr>,
+    pub trailing_comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +36,7 @@ pub struct Directive {
     pub name: Spanned<String>,
     pub args: Vec<Spanned<DirArg>>,
     pub span: Span,
+    pub trailing_comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +51,7 @@ pub struct Instruction {
     pub mnemonic: Spanned<String>,
     pub operand: Option<Spanned<Operand>>,
     pub span: Span,
+    pub trailing_comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +73,7 @@ impl Item {
             Item::Assign(assign) => assign.name.span.start..assign.expr.span.end,
             Item::Directive(directive) => directive.span.clone(),
             Item::Instruction(instruction) => instruction.span.clone(),
+            Item::CommentLine(comment) => comment.span.clone(),
             Item::EmptyLine(empty) => empty.span.clone(),
         }
     }

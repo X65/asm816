@@ -280,6 +280,7 @@ pub fn pass1(program: &Program, initial_mode: CpuMode) -> Pass1Result {
                     fixups.push(fixup);
                 }
             }
+            Item::CommentLine(_) => {}
             Item::EmptyLine(_) => {}
         }
 
@@ -987,6 +988,7 @@ fn file_for_item(item: &Item) -> FileId {
         Item::Assign(assign) => assign.name.file,
         Item::Directive(directive) => directive.name.file,
         Item::Instruction(instruction) => instruction.mnemonic.file,
+        Item::CommentLine(comment) => comment.file,
         Item::EmptyLine(empty) => empty.file,
     }
 }

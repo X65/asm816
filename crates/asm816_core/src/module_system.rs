@@ -427,6 +427,10 @@ fn load_module_file(
 
     let (tokens, lex_diags) = lex_file(source_manager, file);
     diags.extend(lex_diags);
+    let tokens = tokens
+        .into_iter()
+        .filter(|token| token.kind != TokenKind::Comment)
+        .collect::<Vec<_>>();
 
     let analyzed = analyze_module_region(
         file,
@@ -1831,6 +1835,7 @@ fn rewrite_module_symbols(
                     }
                 }
             }
+            Item::CommentLine(_) => {}
             Item::EmptyLine(_) => {}
         }
     }
