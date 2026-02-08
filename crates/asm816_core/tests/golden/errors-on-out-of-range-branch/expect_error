@@ -1,0 +1,7 @@
+Error: branch target out of range: offset 200
+   ╭─[ 0:2:9 ]
+   │
+ 2 │     BNE target
+   │         ───┬──  
+   │            ╰──── branch target out of range: offset 200
+───╯

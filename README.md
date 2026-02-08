@@ -56,6 +56,7 @@ pub ONE = 1
 ```
 
 Notes:
+
 - module files map from roots as `foo/bar.asm` -> `foo::bar`
 - `pub` controls cross-module visibility
 - selective imports are supported: `use foo::bar::{ONE, TWO as T}`

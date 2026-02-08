@@ -1,0 +1,9 @@
+Error: `.include` is no longer supported; use module `import` instead
+   ╭─[ 0:1:1 ]
+   │
+ 1 │ .include "foo.s"
+   │ ────────┬───────  
+   │         ╰───────── `.include` is no longer supported; use module `import` instead
+   │ 
+   │ Help: replace `.include "x.s"` with `import module::path`
+───╯

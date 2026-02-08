@@ -1,0 +1,7 @@
+Error: single-origin mode allows only one `.org`
+   ╭─[ 0:2:1 ]
+   │
+ 2 │ .org $9000
+   │ ─────┬────  
+   │      ╰────── single-origin mode allows only one `.org`
+───╯

@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 
 use ariadne::{
     Color, ColorGenerator, Config, IndexType, Label, LabelAttach, Report, ReportKind, sources,
@@ -80,6 +80,25 @@ pub fn has_errors(diags: &[Diag]) -> bool {
 }
 
 pub fn render_diags(source_manager: &SourceManager, diags: &[Diag]) -> io::Result<()> {
+    let mut stderr = io::stderr();
+    render_diags_to_writer(source_manager, diags, &mut stderr, true)
+}
+
+pub fn render_diags_to_string(
+    source_manager: &SourceManager,
+    diags: &[Diag],
+) -> io::Result<String> {
+    let mut buffer = Vec::new();
+    render_diags_to_writer(source_manager, diags, &mut buffer, false)?;
+    String::from_utf8(buffer).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
+fn render_diags_to_writer<W: Write>(
+    source_manager: &SourceManager,
+    diags: &[Diag],
+    mut writer: W,
+    use_color: bool,
+) -> io::Result<()> {
     let mut cache = sources(
         source_manager
             .files_iter()
@@ -92,7 +111,7 @@ pub fn render_diags(source_manager: &SourceManager, diags: &[Diag]) -> io::Resul
             Severity::Warning => ReportKind::Warning,
             Severity::Note => ReportKind::Advice,
         };
-        let config = report_config(diag.severity);
+        let config = report_config(diag.severity, use_color);
 
         let mut colors = ColorGenerator::new();
         let mut report = Report::build(
@@ -125,7 +144,7 @@ pub fn render_diags(source_manager: &SourceManager, diags: &[Diag]) -> io::Resul
             report = report.with_help(help.clone());
         }
 
-        report.finish().eprint(&mut cache)?;
+        report.finish().write(&mut cache, &mut writer)?;
     }
 
     Ok(())
@@ -139,9 +158,10 @@ fn primary_color(severity: Severity, colors: &mut ColorGenerator) -> Color {
     }
 }
 
-fn report_config(severity: Severity) -> Config {
+fn report_config(severity: Severity, use_color: bool) -> Config {
     // We emit byte spans from the lexer/parser, so diagnostics must render with byte indexing.
     let base = Config::default()
+        .with_color(use_color)
         .with_index_type(IndexType::Byte)
         .with_label_attach(LabelAttach::Middle)
         .with_cross_gap(true)
