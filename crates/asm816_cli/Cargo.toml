@@ -1,0 +1,12 @@
+[package]
+name = "asm816_cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "asm816"
+path = "src/main.rs"
+
+[dependencies]
+asm816_core = { path = "../asm816_core" }
+clap = { version = "4.5", features = ["derive"] }

@@ -24,39 +24,39 @@ Requires a recent Rust toolchain.
 ```bash
 git clone <repo-url>
 cd asm816
-cargo build --release
-````
+cargo build --release -p asm816_cli
+```
 
 ## Usage
 
 Assemble to a raw binary:
 
 ```bash
-cargo run --release -- assemble path/to/main.s -o out.bin
+cargo run --release -p asm816_cli -- assemble path/to/main.s -o out.bin
 ```
 
 Add include directories:
 
 ```bash
-cargo run --release -- assemble path/to/main.s -o out.bin -I include -I vendor
+cargo run --release -p asm816_cli -- assemble path/to/main.s -o out.bin -I include -I vendor
 ```
 
 Set default 65816 register widths (used to size immediate operands):
 
 ```bash
-cargo run --release -- assemble path/to/main.s -o out.bin --a16 --i16
+cargo run --release -p asm816_cli -- assemble path/to/main.s -o out.bin --a16 --i16
 ```
 
 Validate input without writing output:
 
 ```bash
-cargo run --release -- check path/to/main.s
+cargo run --release -p asm816_cli -- check path/to/main.s
 ```
 
 Format to canonical style (if available in your build):
 
 ```bash
-cargo run --release -- fmt path/to/main.s
+cargo run --release -p asm816_cli -- fmt path/to/main.s
 ```
 
 ## Exit codes
