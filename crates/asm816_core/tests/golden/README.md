@@ -1,15 +1,16 @@
 # Golden Fixture Layout
 
-Each fixture directory contains:
+Each test case is a flat file stem under this directory:
 
-- `input.s` (required): assembly source
-- `expected.bin` (optional): expected assembled bytes
-- `expect_error` (optional): expected Ariadne diagnostics snapshot for erroring cases
+- `foo.s` (required): assembly source
+- `foo.bin` (optional): expected assembled bytes
+- `foo.err` (optional): expected Ariadne diagnostics snapshot for erroring cases
 
 Rules:
 
-- If `expect_error` is absent, `expected.bin` must exist and assembly must succeed.
-- If `expect_error` is present, assembly must fail and rendered diagnostics must match that snapshot.
-- `expected.bin` can still be provided with `expect_error` when output bytes should also be asserted.
+- Exactly one of `foo.bin` or `foo.err` must exist for each `foo.s`.
+- If both `foo.bin` and `foo.err` exist, the test hard-aborts immediately.
+- If `foo.bin` exists, assembly must succeed and output bytes must match.
+- If `foo.err` exists, assembly must fail and rendered diagnostics must match.
 
-The test harness in `crates/asm816_core/tests/golden.rs` discovers every subdirectory under this folder and validates each case against these rules. To refresh snapshots, run tests with `ASM816_UPDATE_GOLDEN=1`.
+The test harness in `crates/asm816_core/tests/golden.rs` validates every `*.s` file against these rules. To refresh error snapshots, run tests with `ASM816_UPDATE_GOLDEN=1`.

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -15,29 +16,27 @@ use asm816_core::{
 #[test]
 fn golden_fixtures_match_expectations() {
     let update_snapshots = std::env::var_os("ASM816_UPDATE_GOLDEN").is_some();
-    for case_dir in discover_case_dirs() {
-        let case_name = case_dir
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("<unknown>");
-        let input_path = case_dir.join("input.s");
-        let expected_path = case_dir.join("expected.bin");
-        let expect_error_path = case_dir.join("expect_error");
+    for case in discover_cases() {
+        let case_name = &case.name;
+        let input_path = &case.input_path;
+        let expected_path = case.expected_bin_path.as_ref();
+        let expect_error_path = case.expected_err_path.as_ref();
 
         let input = fs::read_to_string(&input_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", input_path.display()));
-        let expected = expected_path.exists().then(|| {
-            fs::read(&expected_path)
-                .unwrap_or_else(|err| panic!("failed to read {}: {err}", expected_path.display()))
+        let expected = expected_path.map(|path| {
+            fs::read(path).unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
         });
-        let expected_error_snapshot = expect_error_path.exists().then(|| {
-            fs::read_to_string(&expect_error_path).unwrap_or_else(|err| {
-                panic!("failed to read {}: {err}", expect_error_path.display())
-            })
+        let expected_error_snapshot = expect_error_path.map(|path| {
+            fs::read_to_string(path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
         });
         let expect_error = expected_error_snapshot.is_some();
 
-        let inline_path = format!("{case_name}/input.s");
+        let inline_path = input_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("<unknown>");
         let (actual, diags, source_manager) =
             compile_source_text_with_manager(&inline_path, &input, CpuMode::default());
         assert_eq!(
@@ -53,7 +52,7 @@ fn golden_fixtures_match_expectations() {
                 });
             assert_or_update_error_snapshot(
                 case_name,
-                &expect_error_path,
+                expect_error_path.expect("error snapshot path"),
                 &expected_error_snapshot,
                 &actual_error_snapshot,
                 update_snapshots,
@@ -68,38 +67,116 @@ fn golden_fixtures_match_expectations() {
                         format_mismatch_report(
                             case_name,
                             &input_path,
-                            &expected_path,
+                            expected_path.expect("expected bytes path"),
                             &expected,
                             &actual
                         )
                     );
                 }
             }
-            None if !expect_error => {
-                panic!(
-                    "fixture `{case_name}` must provide expected.bin when expect_error is absent ({})",
-                    case_dir.display()
-                );
-            }
             None => {}
         }
     }
 }
 
-fn discover_case_dirs() -> Vec<PathBuf> {
+#[derive(Clone, Debug)]
+struct GoldenCase {
+    name: String,
+    input_path: PathBuf,
+    expected_bin_path: Option<PathBuf>,
+    expected_err_path: Option<PathBuf>,
+}
+
+fn discover_cases() -> Vec<GoldenCase> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
-    let mut dirs = fs::read_dir(&root)
+    let mut stems = fs::read_dir(&root)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", root.display()))
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
+        .filter_map(|path| {
+            if path.is_dir() {
+                panic!(
+                    "golden fixtures must be flat files; found directory {}",
+                    path.display()
+                );
+            }
+            if path.file_name().and_then(|name| name.to_str()) == Some("README.md") {
+                return None;
+            }
+
+            let ext = path.extension().and_then(|ext| ext.to_str());
+            match ext {
+                Some("s") => Some(stem_name(&path)),
+                Some("bin") | Some("err") => None,
+                Some(other) => panic!(
+                    "unsupported file extension `{other}` in golden fixtures: {}",
+                    path.display()
+                ),
+                None => panic!("unsupported golden fixture file: {}", path.display()),
+            }
+        })
         .collect::<Vec<_>>();
-    dirs.sort();
+    stems.sort();
+    stems.dedup();
     assert!(
-        !dirs.is_empty(),
-        "no golden fixture directories found under {}",
+        !stems.is_empty(),
+        "no golden fixture source files (*.s) found under {}",
         root.display()
     );
-    dirs
+
+    let source_stems = stems.iter().cloned().collect::<BTreeSet<_>>();
+    for ext in ["bin", "err"] {
+        for path in fs::read_dir(&root)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", root.display()))
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().and_then(|item| item.to_str()) == Some(ext))
+        {
+            let stem = stem_name(&path);
+            assert!(
+                source_stems.contains(&stem),
+                "found {} without matching {}: {}",
+                path.display(),
+                format!("{stem}.s"),
+                root.display()
+            );
+        }
+    }
+
+    stems
+        .into_iter()
+        .map(|name| {
+            let input_path = root.join(format!("{name}.s"));
+            let expected_bin_path = root.join(format!("{name}.bin"));
+            let expected_err_path = root.join(format!("{name}.err"));
+            let has_bin = expected_bin_path.exists();
+            let has_err = expected_err_path.exists();
+            assert!(
+                !(has_bin && has_err),
+                "fixture `{name}` has both {} and {}; this is not allowed",
+                expected_bin_path.display(),
+                expected_err_path.display()
+            );
+            assert!(
+                has_bin || has_err,
+                "fixture `{name}` must provide either {} or {}",
+                expected_bin_path.display(),
+                expected_err_path.display()
+            );
+
+            GoldenCase {
+                name,
+                input_path,
+                expected_bin_path: has_bin.then_some(expected_bin_path),
+                expected_err_path: has_err.then_some(expected_err_path),
+            }
+        })
+        .collect()
+}
+
+fn stem_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or_else(|| panic!("invalid fixture filename: {}", path.display()))
+        .to_string()
 }
 
 fn compile_source_text_with_manager(
@@ -162,8 +239,8 @@ fn assert_or_update_error_snapshot(
 
 fn format_mismatch_report(
     case_name: &str,
-    input_path: &PathBuf,
-    expected_path: &PathBuf,
+    input_path: &Path,
+    expected_path: &Path,
     expected: &[u8],
     actual: &[u8],
 ) -> String {
