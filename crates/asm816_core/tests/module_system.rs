@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use asm816_core::{
-    AssembleOptions, CheckOptions, CpuMode, assemble_path, check_path, diag::has_errors,
+    AssembleOptions, CpuMode, asm::pass1, asm::pass2, assemble_path, diag::has_errors,
     module_system::build_program_from_entry, source::SourceManager,
 };
 use tempfile::tempdir;
@@ -197,14 +197,20 @@ fn pub_macro_missing_caller_dependency_errors() {
         "pub macro call_helper {\nJSR helper\n}\n",
     );
 
-    let result = check_path(
-        &temp.path().join("main.asm"),
-        &CheckOptions {
-            cpu_mode: CpuMode::default(),
-            include_dirs: Vec::new(),
-        },
-    );
-    assert!(result.is_err());
+    let mut source_manager = SourceManager::new(Vec::new());
+    let build = build_program_from_entry(&mut source_manager, &temp.path().join("main.asm"));
+    let program = build.program;
+    let mut diags = build.diags;
+
+    let pass1 = pass1(&program, CpuMode::default());
+    diags.extend(pass1.diags.clone());
+
+    if !has_errors(&diags) {
+        let (_bytes, pass2_diags) = pass2(&program, &pass1);
+        diags.extend(pass2_diags);
+    }
+
+    assert!(has_errors(&diags), "diagnostics: {:#?}", diags);
 }
 
 #[test]
