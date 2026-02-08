@@ -369,7 +369,8 @@ fn resolve_instruction_layout(
         AddrMode::Rel8
     } else {
         match operand.map(|operand| &operand.value) {
-            None => AddrMode::Imp,
+            None => resolve_no_operand_mode(mnemonic),
+            Some(Operand::Acc) => AddrMode::Acc,
             Some(Operand::Imm(_)) => {
                 if immediate_uses_xy(mnemonic) {
                     AddrMode::ImmXY
@@ -377,33 +378,41 @@ fn resolve_instruction_layout(
                     AddrMode::ImmA
                 }
             }
-            Some(Operand::Expr(expr)) => {
-                if mnemonic == "JSR" || mnemonic == "JMP" {
-                    AddrMode::Abs
+            Some(Operand::Expr(expr)) => select_expr_mode(
+                mnemonic,
+                expr,
+                AddrMode::Dp,
+                AddrMode::Abs,
+                instruction,
+                diags,
+            ),
+            Some(Operand::ExprX(expr)) => select_expr_mode(
+                mnemonic,
+                expr,
+                AddrMode::DpX,
+                AddrMode::AbsX,
+                instruction,
+                diags,
+            ),
+            Some(Operand::ExprY(expr)) => select_expr_mode(
+                mnemonic,
+                expr,
+                AddrMode::DpY,
+                AddrMode::AbsY,
+                instruction,
+                diags,
+            ),
+            Some(Operand::Ind(expr)) => select_indirect_mode(mnemonic, expr),
+            Some(Operand::IndX(_)) => {
+                if mnemonic == "JMP" && opcode_for(mnemonic, AddrMode::IndAbsX).is_some() {
+                    AddrMode::IndAbsX
                 } else {
-                    select_dp_or_abs(mnemonic, try_eval_expr(expr, symtab, pc as i64))
+                    AddrMode::IndX
                 }
             }
-            Some(Operand::ExprX(expr)) => {
-                select_dp_or_abs_x(mnemonic, try_eval_expr(expr, symtab, pc as i64))
-            }
-            Some(Operand::ExprY(expr)) => {
-                select_dp_or_abs_y(mnemonic, try_eval_expr(expr, symtab, pc as i64))
-            }
-            Some(Operand::Ind(_)) => AddrMode::Ind,
-            Some(Operand::IndX(_)) => AddrMode::IndX,
             Some(Operand::IndY(_)) => AddrMode::IndY,
         }
     };
-
-    if opcode_for(mnemonic, selected_mode).is_none() {
-        selected_mode = match selected_mode {
-            AddrMode::Dp if opcode_for(mnemonic, AddrMode::Abs).is_some() => AddrMode::Abs,
-            AddrMode::DpX if opcode_for(mnemonic, AddrMode::AbsX).is_some() => AddrMode::AbsX,
-            AddrMode::DpY if opcode_for(mnemonic, AddrMode::AbsY).is_some() => AddrMode::AbsY,
-            mode => mode,
-        };
-    }
 
     if opcode_for(mnemonic, selected_mode).is_none() {
         diags.push(Diag::error(
@@ -420,7 +429,9 @@ fn resolve_instruction_layout(
                 AddrMode::Rel8 => FixupKind::Rel8,
                 AddrMode::ImmA => FixupKind::ImmA,
                 AddrMode::ImmXY => FixupKind::ImmXY,
-                AddrMode::Dp => FixupKind::DpOrAbs,
+                AddrMode::Dp | AddrMode::DpInd | AddrMode::IndX | AddrMode::IndY => {
+                    FixupKind::DpOrAbs
+                }
                 AddrMode::DpX => FixupKind::DpXOrAbsX,
                 AddrMode::DpY => FixupKind::DpYOrAbsY,
                 _ => FixupKind::DpOrAbs,
@@ -567,7 +578,7 @@ fn encode_instruction(
     bytes.push(opcode);
 
     match mode {
-        AddrMode::Imp => {}
+        AddrMode::Imp | AddrMode::Acc => {}
         AddrMode::Rel8 => {
             let Some(operand) = instruction.operand.as_ref() else {
                 diags.push(Diag::error(
@@ -669,10 +680,15 @@ fn encode_instruction(
                 }
             }
         }
-        AddrMode::Dp | AddrMode::DpX | AddrMode::DpY | AddrMode::IndX | AddrMode::IndY => {
+        AddrMode::Dp
+        | AddrMode::DpX
+        | AddrMode::DpY
+        | AddrMode::IndX
+        | AddrMode::IndY
+        | AddrMode::DpInd => {
             encode_expression_byte_operand(instruction, layout, pass1, bytes, diags);
         }
-        AddrMode::Abs | AddrMode::AbsX | AddrMode::AbsY | AddrMode::Ind => {
+        AddrMode::Abs | AddrMode::AbsX | AddrMode::AbsY | AddrMode::Ind | AddrMode::IndAbsX => {
             encode_expression_word_operand(instruction, layout, pass1, bytes, diags);
         }
     }
@@ -845,46 +861,73 @@ fn directive_expr_value(
     }
 }
 
-fn select_dp_or_abs(mnemonic: &str, value: Option<i64>) -> AddrMode {
-    if let Some(value) = value {
-        if (0..=0xFF).contains(&value) && opcode_for(mnemonic, AddrMode::Dp).is_some() {
-            return AddrMode::Dp;
-        }
-    }
-
-    if opcode_for(mnemonic, AddrMode::Abs).is_some() {
-        AddrMode::Abs
+fn resolve_no_operand_mode(mnemonic: &str) -> AddrMode {
+    if opcode_for(mnemonic, AddrMode::Imp).is_some() {
+        AddrMode::Imp
+    } else if opcode_for(mnemonic, AddrMode::Acc).is_some() {
+        AddrMode::Acc
     } else {
-        AddrMode::Dp
+        AddrMode::Imp
     }
 }
 
-fn select_dp_or_abs_x(mnemonic: &str, value: Option<i64>) -> AddrMode {
-    if let Some(value) = value {
-        if (0..=0xFF).contains(&value) && opcode_for(mnemonic, AddrMode::DpX).is_some() {
-            return AddrMode::DpX;
+fn select_expr_mode(
+    mnemonic: &str,
+    expr: &Expr,
+    dp_mode: AddrMode,
+    abs_mode: AddrMode,
+    instruction: &Instruction,
+    diags: &mut Vec<Diag>,
+) -> AddrMode {
+    let forced_dp = is_forced_direct_expr(expr);
+
+    if mnemonic == "JSR" || (mnemonic == "JMP" && abs_mode == AddrMode::Abs) {
+        if forced_dp {
+            diags.push(Diag::error(
+                instruction.mnemonic.file,
+                instruction.span.clone(),
+                format!(
+                    "forced direct-page operand is not valid for `{mnemonic}`; use plain expression"
+                ),
+            ));
+        }
+        return abs_mode;
+    }
+
+    if forced_dp {
+        if opcode_for(mnemonic, dp_mode).is_some() {
+            return dp_mode;
+        }
+
+        if opcode_for(mnemonic, abs_mode).is_some() {
+            diags.push(Diag::error(
+                instruction.mnemonic.file,
+                instruction.span.clone(),
+                format!("`{mnemonic}` does not support forced direct-page in this addressing form"),
+            ));
+            return abs_mode;
         }
     }
 
-    if opcode_for(mnemonic, AddrMode::AbsX).is_some() {
-        AddrMode::AbsX
+    if opcode_for(mnemonic, abs_mode).is_some() {
+        abs_mode
     } else {
-        AddrMode::DpX
+        dp_mode
     }
 }
 
-fn select_dp_or_abs_y(mnemonic: &str, value: Option<i64>) -> AddrMode {
-    if let Some(value) = value {
-        if (0..=0xFF).contains(&value) && opcode_for(mnemonic, AddrMode::DpY).is_some() {
-            return AddrMode::DpY;
-        }
-    }
-
-    if opcode_for(mnemonic, AddrMode::AbsY).is_some() {
-        AddrMode::AbsY
+fn select_indirect_mode(mnemonic: &str, _expr: &Expr) -> AddrMode {
+    if mnemonic == "JMP" {
+        AddrMode::Ind
+    } else if opcode_for(mnemonic, AddrMode::DpInd).is_some() {
+        AddrMode::DpInd
     } else {
-        AddrMode::DpY
+        AddrMode::Ind
     }
+}
+
+fn is_forced_direct_expr(expr: &Expr) -> bool {
+    matches!(expr, Expr::LowByte(_))
 }
 
 fn instruction_size(mode: AddrMode, cpu_mode: CpuMode) -> u32 {
@@ -931,6 +974,7 @@ fn operand_expr_from_operand(operand: &Spanned<Operand>) -> Option<&Expr> {
         | Operand::Ind(expr)
         | Operand::IndX(expr)
         | Operand::IndY(expr) => Some(expr),
+        Operand::Acc => None,
     }
 }
 

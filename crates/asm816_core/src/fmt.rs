@@ -82,6 +82,7 @@ fn format_instruction(instruction: &Instruction) -> String {
 fn format_operand(operand: &Operand) -> String {
     match operand {
         Operand::Imm(expr) => format!("#{}", format_expr(expr)),
+        Operand::Acc => "A".to_string(),
         Operand::Expr(expr) => format_expr(expr),
         Operand::ExprX(expr) => format!("{}, X", format_expr(expr)),
         Operand::ExprY(expr) => format!("{}, Y", format_expr(expr)),

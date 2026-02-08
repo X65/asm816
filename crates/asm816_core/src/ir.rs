@@ -52,6 +52,7 @@ pub struct Instruction {
 #[derive(Clone, Debug)]
 pub enum Operand {
     Imm(Expr),
+    Acc,
     Expr(Expr),
     ExprX(Expr),
     ExprY(Expr),

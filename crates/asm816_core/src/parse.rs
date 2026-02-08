@@ -202,6 +202,7 @@ fn push_parsed_line(
         }
         LineTail::Instruction { mnemonic, operand } => {
             let mnemonic = to_spanned(mnemonic, file, line_tokens);
+            let mnemonic_name = mnemonic.value.clone();
             let operand = operand.map(|operand| {
                 let operand = to_spanned(operand, file, line_tokens);
                 Spanned {
@@ -209,7 +210,13 @@ fn push_parsed_line(
                     span: operand.span,
                     value: match operand.value {
                         ParsedOperand::Imm(expr) => Operand::Imm(expr),
-                        ParsedOperand::Expr(expr) => Operand::Expr(expr),
+                        ParsedOperand::Expr(expr) => {
+                            if should_treat_as_accumulator_operand(&mnemonic_name, &expr) {
+                                Operand::Acc
+                            } else {
+                                Operand::Expr(expr)
+                            }
+                        }
                         ParsedOperand::ExprX(expr) => Operand::ExprX(expr),
                         ParsedOperand::ExprY(expr) => Operand::ExprY(expr),
                         ParsedOperand::Ind(expr) => Operand::Ind(expr),
@@ -608,9 +615,25 @@ fn unescape_string_literal(input: &str) -> Result<String, String> {
     Ok(out)
 }
 
+fn should_treat_as_accumulator_operand(mnemonic: &str, expr: &Expr) -> bool {
+    if !matches!(mnemonic, "ASL" | "LSR" | "ROL" | "ROR" | "INC" | "DEC") {
+        return false;
+    }
+
+    match expr {
+        Expr::Symbol(symbol) => symbol.eq_ignore_ascii_case("A"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{lex::lex_file, source::SourceManager};
+    use crate::{
+        expr::Expr,
+        ir::{Item, Operand},
+        lex::lex_file,
+        source::SourceManager,
+    };
 
     use super::parse_tokens;
 
@@ -624,5 +647,48 @@ mod tests {
         let (program, parse_diags) = parse_tokens(&tokens);
         assert!(parse_diags.is_empty());
         assert_eq!(program.items.len(), 2);
+    }
+
+    #[test]
+    fn parses_accumulator_operand_for_shift() {
+        let mut manager = SourceManager::new(Vec::new());
+        let file = manager.add_virtual_file("test.s", "ASL A\n");
+        let (tokens, lex_diags) = lex_file(&manager, file);
+        assert!(lex_diags.is_empty());
+
+        let (program, parse_diags) = parse_tokens(&tokens);
+        assert!(parse_diags.is_empty());
+        assert_eq!(program.items.len(), 1);
+
+        let Item::Instruction(instruction) = &program.items[0] else {
+            panic!("expected instruction");
+        };
+        let Some(operand) = &instruction.operand else {
+            panic!("expected operand");
+        };
+        assert!(matches!(operand.value, Operand::Acc));
+    }
+
+    #[test]
+    fn keeps_symbol_a_for_non_accumulator_mnemonic() {
+        let mut manager = SourceManager::new(Vec::new());
+        let file = manager.add_virtual_file("test.s", "LDA A\n");
+        let (tokens, lex_diags) = lex_file(&manager, file);
+        assert!(lex_diags.is_empty());
+
+        let (program, parse_diags) = parse_tokens(&tokens);
+        assert!(parse_diags.is_empty());
+        assert_eq!(program.items.len(), 1);
+
+        let Item::Instruction(instruction) = &program.items[0] else {
+            panic!("expected instruction");
+        };
+        let Some(operand) = &instruction.operand else {
+            panic!("expected operand");
+        };
+        match &operand.value {
+            Operand::Expr(Expr::Symbol(symbol)) => assert_eq!(symbol, "A"),
+            other => panic!("unexpected operand shape: {other:?}"),
+        }
     }
 }
