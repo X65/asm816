@@ -9,6 +9,9 @@ use crate::{
 #[logos(skip r"[ \t\f]+")]
 #[logos(skip(r";[^\n]*", allow_greedy = true))]
 pub enum TokenKind {
+    #[regex(r"%%[A-Za-z_][A-Za-z0-9_]*")]
+    MacroLocalLabel,
+
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Ident,
 
@@ -32,6 +35,10 @@ pub enum TokenKind {
     LBracket,
     #[token("]")]
     RBracket,
+    #[token("{")]
+    LBrace,
+    #[token("}")]
+    RBrace,
     #[token("#")]
     Hash,
     #[token("+")]

@@ -58,6 +58,12 @@ pub ONE = 1
 Notes:
 - module files map from roots as `foo/bar.asm` -> `foo::bar`
 - `pub` controls cross-module visibility
+- selective imports are supported: `use foo::bar::{ONE, TWO as T}`
+- inner modules are supported: `mod util { ... }` -> `<current>::util`
+- public macros are supported and expand at call site:
+  - define: `pub macro emit { LDA #ONE }`
+  - invoke: `foo::macros::emit` or via `use ...::{emit}` then `emit`
+  - macro-local labels: `%%loop`
 - `.include` is deprecated and now reported as an error
 
 Set default 65816 register widths (used to size immediate operands):

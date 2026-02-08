@@ -27,6 +27,8 @@ enum ParseToken {
     RParen,
     LBracket,
     RBracket,
+    LBrace,
+    RBrace,
     Hash,
     Plus,
     Minus,
@@ -266,6 +268,7 @@ fn convert_line_tokens(raw_tokens: &[Token], diags: &mut Vec<Diag>) -> Vec<LineT
     for token in raw_tokens {
         let kind = match token.kind {
             TokenKind::Ident => ParseToken::Ident(token.lexeme.clone()),
+            TokenKind::MacroLocalLabel => ParseToken::Ident(token.lexeme.clone()),
             TokenKind::Number => ParseToken::Number(token.lexeme.clone()),
             TokenKind::String => match unescape_string_literal(&token.lexeme) {
                 Ok(value) => ParseToken::String(value),
@@ -281,6 +284,8 @@ fn convert_line_tokens(raw_tokens: &[Token], diags: &mut Vec<Diag>) -> Vec<LineT
             TokenKind::RParen => ParseToken::RParen,
             TokenKind::LBracket => ParseToken::LBracket,
             TokenKind::RBracket => ParseToken::RBracket,
+            TokenKind::LBrace => ParseToken::LBrace,
+            TokenKind::RBrace => ParseToken::RBrace,
             TokenKind::Hash => ParseToken::Hash,
             TokenKind::Plus => ParseToken::Plus,
             TokenKind::Minus => ParseToken::Minus,
